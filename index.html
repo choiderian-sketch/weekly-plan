@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>주간 예정사항</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+/* 화면: 왼쪽 입력·목록 / 오른쪽 A4 미리보기. 인쇄: A4 세로 1장(상세표) + A4 가로 1장(월력표). 외부 글꼴·스크립트 없음(인트라넷에서도 동작) */
+:root{
+  --ui-bg:#eceff2; --panel:#ffffff; --ink:#1a1d21; --muted:#59626c; --line:#cdd3d9; --line-strong:#8f98a2;
+  --accent:#24426b; --accent-ink:#ffffff; --accent-soft:#e7edf5;
+  --warn:#8a4b00; --warn-bg:#fff4e2; --danger:#a01b1b; --ok:#2d6a3a;
+  --thisweek:#eef3f9; --faint:#a3abb3;
+  --ui-font:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  --title-font:"Batang","바탕","AppleMyungjo","Noto Serif KR",serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--ui-bg);color:var(--ink);font-family:var(--ui-font);font-size:14px;line-height:1.5}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:6px;min-height:34px;padding:0 12px;white-space:nowrap}
+button:hover{border-color:var(--line-strong)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.danger{color:var(--danger)}
+button.sm{min-height:28px;padding:0 8px;font-size:12px}
+button:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=text],input[type=date],input[type=time],input[type=search],select,textarea{border:1px solid var(--line);border-radius:6px;background:#fff;min-height:34px;padding:4px 8px;width:100%}
+textarea{resize:vertical;min-height:64px}
+label.f{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted);min-width:0}
+label.f > span{font-weight:600}
+label.chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);min-height:34px}
+.hint{font-size:12px;color:var(--muted);margin:0}
+
+/* ---------- 상단 바 ---------- */
+.appbar{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-direction:column;gap:8px;position:sticky;top:0;z-index:5}
+.bar1{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bar1 h1{font-size:18px;margin:0 8px 0 0;letter-spacing:-.01em}
+.bar1 .grow{flex:1}
+.savestate{font-size:12px;color:var(--muted)}
+.authbox{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.authbox .who{color:var(--ok);font-weight:600}
+#authMsg{font-size:13px;margin:0;min-height:1.4em}
+#authMsg.err{color:var(--danger)}
+.bar2{display:grid;grid-template-columns:1.2fr 1fr auto auto 140px 1fr;gap:8px;align-items:end}
+.weekctl{display:flex;gap:4px;align-items:end}
+.weekctl input{width:150px}
+.weeklabel{font-size:12px;color:var(--accent);font-weight:600;min-height:1.5em}
+
+/* ---------- 본문 ---------- */
+.main{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;padding:16px;align-items:start}
+.side{display:flex;flex-direction:column;gap:12px;position:sticky;top:132px;max-height:calc(100vh - 148px);overflow:auto;padding-bottom:8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.card h2{font-size:14px;margin:0;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tabs2{display:flex;gap:4px}
+.tabs2 button[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.row-btns{display:flex;gap:6px;flex-wrap:wrap}
+
+/* 검토 카드 */
+.review{display:flex;flex-direction:column;gap:10px}
+.rcard{border:1px solid var(--accent);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;background:#fbfcfe}
+.rcard .raw{font-size:12px;color:var(--muted);margin:0}
+.rcard .interp{font-size:13px;font-weight:600;color:var(--accent);margin:0}
+.msgs{margin:0;padding-left:18px;font-size:12px}
+.msgs li.w{color:var(--warn)}
+.msgs li.i{color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:8px}
+.span2{grid-column:1 / -1}
+input.need{border-color:var(--warn);background:var(--warn-bg)}
+
+/* 일정 목록 */
+.filters{display:grid;grid-template-columns:1fr 130px;gap:6px}
+.evlist{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.evlist li{border:1px solid var(--line);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}
+.evlist .top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.evlist .dt{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);min-width:92px}
+.evlist .tt{font-weight:600;overflow-wrap:anywhere;flex:1;min-width:0}
+.evlist .sub{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.tag{display:inline-block;font-size:11px;border:1px solid var(--line-strong);border-radius:3px;padding:0 4px;color:var(--muted);margin-left:4px;font-weight:400}
+.tag.demo{border-color:var(--warn);color:var(--warn)}
+.empty{color:var(--muted);font-size:13px;margin:4px 0}
+
+/* ---------- 미리보기 ---------- */
+.previewbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.previewbar .grow{flex:1}
+.warnbox{background:var(--warn-bg);color:var(--warn);border-radius:6px;padding:6px 10px;font-size:13px;margin:0 0 10px}
+.sheets{display:flex;flex-direction:column;gap:20px;align-items:center}
+.zoomwrap{overflow:hidden;flex:none}
+.zoomwrap > .sheet{transform-origin:top left}
+
+/* ---------- 문서(A4) ---------- */
+.sheet{background:#fff;color:#000;box-shadow:0 1px 4px rgba(0,0,0,.18);font-family:var(--ui-font);position:relative}
+.sheet.portrait{width:186mm;height:271mm}
+.sheet.landscape{width:277mm;height:188mm}
+.sheet-pad{padding:0}
+.sheet-body{height:100%;overflow:hidden;display:flex;flex-direction:column;font-size:var(--fs,10pt)}
+.sheet.grown{height:auto}
+.sheet.grown .sheet-body{height:auto;overflow:visible}
+.doc-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:8px;border-bottom:2px solid #000;padding-bottom:2mm;margin-bottom:3mm}
+.doc-unit{font-size:1em;font-weight:600}
+.doc-title{font-family:var(--title-font);font-size:2.1em;font-weight:700;letter-spacing:.35em;margin:0;text-align:center;padding-left:.35em;white-space:nowrap}
+.doc-meta{text-align:right;font-size:.9em;line-height:1.6}
+.doc-period{text-align:center;font-size:1em;margin:0 0 3mm}
+.sec-title{font-weight:700;font-size:1.1em;margin:3mm 0 1.5mm}
+.foot{margin-top:auto;padding-top:2mm;text-align:center;font-size:.85em;color:#333}
+
+/* 1페이지 표 */
+table.p1{width:100%;border-collapse:collapse;table-layout:fixed;font-size:1em}
+table.p1 th,table.p1 td{border:1px solid #000;padding:1.2mm 1.5mm;vertical-align:top;overflow-wrap:anywhere;word-break:keep-all}
+table.p1 thead th{background:#e6e6e6;font-weight:700;text-align:center;vertical-align:middle}
+table.p1 td.c{text-align:center}
+table.p1 td.dt{text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.p1 tr{break-inside:avoid}
+table.p1 .ttl{font-weight:700}
+table.p1 .det{white-space:pre-wrap;font-size:.92em;margin-top:.8mm}
+table.p1 .day-first td{border-top:1.6px solid #000}
+.rowtools{display:flex;gap:3px;margin-top:1mm}
+.rowtools button{min-height:22px;padding:0 6px;font-size:11px;font-family:var(--ui-font)}
+.notes-print{white-space:pre-wrap;border:1px solid #000;padding:2mm;min-height:20mm;font-size:1em}
+.notes-edit{width:100%;min-height:30mm;border:1px dashed #999;border-radius:0;font-size:1em;padding:2mm;font-family:var(--ui-font)}
+.p1-empty{border:1px solid #000;padding:6mm;text-align:center;color:#555}
+
+/* 2페이지 월력표 */
+.cal-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:2mm;gap:8px}
+.cal-head .t{font-family:var(--title-font);font-size:1.8em;font-weight:700;letter-spacing:.1em;white-space:nowrap}
+.cal-head .m{font-size:.95em;text-align:right;line-height:1.5}
+.legend{display:flex;gap:4mm;font-size:.9em;margin-bottom:1.5mm;align-items:center}
+.legend i{display:inline-block;width:6mm;height:3.2mm;vertical-align:-0.4mm;margin-right:1mm;border:1px solid #000}
+.legend i.tw{background:var(--thisweek);border:2px solid #000}
+.legend i.out{background:#fff;border:1px dashed #999}
+.cal{display:grid;grid-template-columns:10mm repeat(7,minmax(0,1fr));grid-template-rows:auto;grid-auto-rows:minmax(var(--rowmin,20mm),auto);border-top:1px solid #000;border-left:1px solid #000;align-content:start}
+.cal > div{border-right:1px solid #000;border-bottom:1px solid #000;min-width:0}
+.cal .h{background:#e6e6e6;text-align:center;font-weight:700;padding:.8mm 0;font-size:.95em}
+.cal .h.sat{color:#0b3a8f}.cal .h.sun{color:#a01b1b}
+.cal .wk{display:flex;align-items:center;justify-content:center;text-align:center;white-space:pre-line;font-size:.82em;line-height:1.25;font-weight:600;background:#f4f4f4;padding:1mm 0}
+.cal .wk.tw{background:var(--thisweek);font-weight:800;box-shadow:inset 0 2px 0 #000,inset 0 -2px 0 #000}
+.day{padding:.8mm 1mm 1mm;display:flex;flex-direction:column;gap:.6mm;position:relative;cursor:default}
+.day .dn{font-weight:700;font-size:.95em;font-variant-numeric:tabular-nums;display:flex;justify-content:space-between;gap:2px}
+.day .dn .mo{font-weight:700}
+.day.sat .dn{color:#0b3a8f}.day.sun .dn{color:#a01b1b}
+.day.tw{background:var(--thisweek);box-shadow:inset 0 2px 0 #000,inset 0 -2px 0 #000}
+.day.out{color:var(--faint)}
+.day.out .dn{color:var(--faint);font-weight:400}
+.day.out .ev{opacity:.55}
+.day.today .dn::after{content:"오늘";font-size:.75em;font-weight:400;border:1px solid currentColor;border-radius:2px;padding:0 1mm;margin-left:auto}
+.ev{font-size:.92em;line-height:1.28;word-break:keep-all;overflow-wrap:anywhere;padding-top:.5mm}
+.ev + .ev{border-top:1px dotted #777;padding-top:.7mm}
+.ev .l1{font-weight:700}
+.ev .l2{padding-left:.9em;font-size:.93em}
+@media screen{
+  .day{cursor:pointer}
+  .day:hover{outline:2px solid var(--accent);outline-offset:-2px}
+  .ev:hover .l1{text-decoration:underline}
+}
+
+/* 인쇄 전용 / 화면 전용 */
+.print-only{display:none}
+@page{size:A4 portrait;margin:12mm}
+@page land{size:A4 landscape;margin:10mm}
+@media print{
+  body{background:#fff}
+  .no-print,.appbar,.side,.previewbar,.warnbox{display:none!important}
+  .main{display:block;padding:0}
+  .sheets{display:block;gap:0}
+  .zoomwrap{display:block!important;width:auto!important;height:auto!important;overflow:visible!important}
+  .zoomwrap > .sheet{transform:none!important}
+  .sheet{box-shadow:none;margin:0}
+  .sheet.portrait{break-after:page}
+  .sheet.landscape{page:land}
+  .print-only{display:block}
+  .notes-edit{display:none}
+  .rowtools{display:none}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+@media (max-width:1100px){
+  .main{grid-template-columns:1fr}
+  .side{position:static;max-height:none}
+  .bar2{grid-template-columns:1fr 1fr}
+}
+@media (max-width:560px){.bar2,.grid2,.grid3{grid-template-columns:1fr}}
+
+dialog{border:1px solid var(--line);border-radius:10px;padding:0;width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 40px)}
+dialog::backdrop{background:rgba(20,25,30,.45)}
+dialog form{display:flex;flex-direction:column;gap:10px;padding:16px}
+dialog h3{margin:0;font-size:16px}
+dialog .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+</style>
+</head>
+<body>
+
+<header class="appbar no-print">
+  <div class="bar1">
+    <h1>주간 예정사항 작성</h1>
+    <span class="savestate" id="saveState" aria-live="polite"></span>
+    <span class="grow"></span>
+    <span id="authBox" class="authbox"></span>
+    <button type="button" class="primary" id="btnPrint">인쇄 / PDF 저장</button>
+    <button type="button" id="btnExportJson">백업(JSON)</button>
+    <button type="button" id="btnExportCsv">내보내기(CSV)</button>
+    <button type="button" id="btnImport">복원(JSON/CSV)</button>
+    <input type="file" id="fileImport" accept=".json,.csv,application/json,text/csv" hidden>
+  </div>
+  <div class="bar2">
+    <label class="f"><span>부대명</span><input type="text" id="mUnit" placeholder="예: 제00보병사단 000대대"></label>
+    <label class="f"><span>문서 제목</span><input type="text" id="mTitle"></label>
+    <div class="f" style="display:flex;flex-direction:column;gap:2px">
+      <span style="font-size:12px;color:var(--muted);font-weight:600"><label for="mWeek">기준 주 (월요일 시작)</label> <span class="weeklabel" id="weekLabel"></span></span>
+      <div class="weekctl">
+        <button type="button" id="weekPrev" aria-label="이전 주">◀</button>
+        <input type="date" id="mWeek">
+        <button type="button" id="weekNext" aria-label="다음 주">▶</button>
+        <button type="button" id="weekToday">이번 주</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:end">
+      <label class="f"><span>월력표 기간</span>
+        <select id="mWeeks"><option value="4">이번 주 포함 4주</option><option value="5">이번 주 + 향후 4주 (5주)</option></select>
+      </label>
+      <label class="chk"><input type="checkbox" id="mMonth"> 월 전체 보기</label>
+    </div>
+    <label class="f"><span>작성일</span><input type="date" id="mWritten"></label>
+    <label class="f"><span>작성자</span><input type="text" id="mAuthor" placeholder="예: 작전과장 소령 홍길동"></label>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="side no-print">
+    <section class="card" aria-labelledby="inTitle">
+      <h2 id="inTitle">일정 입력
+        <span class="tabs2" role="group" aria-label="입력 방식">
+          <button type="button" class="sm" id="modeNl" aria-pressed="true">문장으로</button>
+          <button type="button" class="sm" id="modeForm" aria-pressed="false">항목별</button>
+        </span>
+      </h2>
+      <div id="nlBox" style="display:flex;flex-direction:column;gap:8px">
+        <label class="f" for="nlInput"><span>일정 문장 (한 줄에 일정 하나, 여러 줄 가능)</span></label>
+        <textarea id="nlInput" rows="3" placeholder="예) 10월 27일 14시 대대 회의실에서 간부 대상 안전교육&#10;다음 주 수요일 오전 9시, 연병장에서 전 장병 체력측정"></textarea>
+        <div class="row-btns">
+          <button type="button" class="primary" id="btnParse">정리해서 검토하기</button>
+          <button type="button" id="btnDemo">예시 일정 넣기(데모)</button>
+        </div>
+        <p class="hint">Ctrl+Enter로도 정리됩니다. 정리 결과는 저장 전에 아래에서 확인·수정합니다.</p>
+      </div>
+      <div id="formBox" hidden>
+        <button type="button" class="primary" id="btnNewForm">새 일정 항목별 입력</button>
+      </div>
+      <div class="review" id="review"></div>
+    </section>
+
+    <section class="card" aria-labelledby="listTitle">
+      <h2 id="listTitle">전체 일정 <span class="hint" id="listCount"></span></h2>
+      <div class="filters">
+        <input type="search" id="q" placeholder="검색: 행사명·장소·대상·담당" aria-label="일정 검색">
+        <select id="range" aria-label="기간 필터">
+          <option value="period">월력표 기간</option>
+          <option value="week">기준 주</option>
+          <option value="future">기준 주 이후 전체</option>
+          <option value="past">기준 주 이전</option>
+          <option value="all">전체</option>
+        </select>
+      </div>
+      <ul class="evlist" id="evList"></ul>
+      <div class="row-btns" id="demoTools" hidden><button type="button" class="sm danger" id="btnDelDemo">예시 일정 모두 삭제</button></div>
+    </section>
+  </aside>
+
+  <section aria-label="문서 미리보기">
+    <div class="previewbar no-print">
+      <div class="tabs2" role="group" aria-label="미리보기 페이지">
+        <button type="button" id="tabAll" aria-pressed="true">모두 보기</button>
+        <button type="button" id="tab1" aria-pressed="false">1페이지 상세 예정사항</button>
+        <button type="button" id="tab2" aria-pressed="false">2페이지 월력표</button>
+      </div>
+      <span class="grow"></span>
+      <span class="hint">월력표 날짜 칸을 누르면 그날 일정을 추가하고, 일정을 누르면 수정합니다.</span>
+    </div>
+    <p class="warnbox no-print" id="fitWarn" hidden></p>
+    <div class="sheets" id="sheets">
+      <div class="zoomwrap" id="zw1"><div class="sheet portrait" id="sheet1"><div class="sheet-body" id="p1"></div></div></div>
+      <div class="zoomwrap" id="zw2"><div class="sheet landscape" id="sheet2"><div class="sheet-body" id="p2"></div></div></div>
+    </div>
+  </section>
+</div>
+
+<dialog id="authDlg">
+  <form id="authForm">
+    <h3>로그인 (클라우드 저장)</h3>
+    <p class="hint" style="margin:0">로그인하면 일정이 내 계정에 저장되어 다른 PC에서도 이어서 쓸 수 있습니다. 내 일정은 나만 볼 수 있습니다.</p>
+    <label class="f" for="authEmail"><span>이메일</span><input type="text" id="authEmail" autocomplete="email" inputmode="email"></label>
+    <label class="f" for="authPw"><span>비밀번호 (6자 이상)</span><input type="password" id="authPw" autocomplete="current-password" style="border:1px solid var(--line);border-radius:6px;min-height:34px;padding:4px 8px;width:100%"></label>
+    <p id="authMsg" aria-live="polite"></p>
+    <div class="acts">
+      <button type="button" id="authSignup">처음이면 회원가입</button>
+      <span style="flex:1"></span>
+      <button type="button" id="authClose">닫기</button>
+      <button type="submit" class="primary">로그인</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <h3 id="dlgTitle">일정 수정</h3>
+    <p class="interp" id="dlgInterp" style="margin:0;color:var(--accent);font-weight:600"></p>
+    <div id="dlgFields"></div>
+    <div class="acts">
+      <button type="button" class="danger" id="dlgDelete">삭제</button>
+      <span style="flex:1"></span>
+      <button type="button" id="dlgCancel">취소</button>
+      <button type="submit" class="primary" id="dlgSave">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+/* =====================================================================
+   날짜 도구 (모두 현지 시각, 'YYYY-MM-DD' 문자열로 보관)
+   ===================================================================== */
+/*CORE-START*/
+const WD = ["일", "월", "화", "수", "목", "금", "토"];
+const pad = (n) => String(n).padStart(2, "0");
+function ymd(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function parseYmd(s) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ""); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; }
+function addDays(s, n) { const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); }
+function mondayOf(s) { const d = parseYmd(s); const k = (d.getDay() + 6) % 7; d.setDate(d.getDate() - k); return ymd(d); }
+function validDate(y, m, d) { const t = new Date(y, m - 1, d); return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d; }
+function wdOf(s) { return parseYmd(s).getDay(); }
+function fmtMD(s) { const d = parseYmd(s); return `${d.getMonth() + 1}. ${d.getDate()}.(${WD[d.getDay()]})`; }
+function fmtFull(s) { const d = parseYmd(s); return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${WD[d.getDay()]})`; }
+function fmtDot(s) { const d = parseYmd(s); return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`; }
+/* 월 주차: 그 주의 목요일이 속한 달, 목요일 날짜로 몇째 주인지 계산 */
+function weekOfMonth(monday) {
+  const th = parseYmd(addDays(monday, 3));
+  return { y: th.getFullYear(), m: th.getMonth() + 1, w: Math.ceil(th.getDate() / 7) };
+}
+function weekName(monday) { const k = weekOfMonth(monday); return `${k.y}년 ${k.m}월 ${k.w}주차`; }
+
+/* =====================================================================
+   자연어 일정 해석
+   ===================================================================== */
+const AUDIENCE = ["전 장병", "전장병", "전 간부", "전간부", "전 인원", "전 부대원", "전원", "간부", "장병", "용사", "병사", "부사관", "장교", "전입 신병", "전입신병", "신병", "분대장", "소대장", "중대장", "행정보급관", "지휘관", "참모", "군무원", "당직근무자", "당직 근무자", "위병근무자"];
+const WD_IDX = { 월: 1, 화: 2, 수: 3, 목: 4, 금: 5, 토: 6, 일: 0 };
+
+function normalize(t) {
+  return String(t || "")
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[～〜∼]/g, "~").replace(/[，]/g, ",").replace(/[：]/g, ":")
+    .replace(/[–—]/g, "-").replace(/\s+/g, " ").trim();
+}
+
+function to24(h, mi, ap) {
+  if (ap === "오후" || ap === "저녁" || ap === "밤") { if (h < 12) h += 12; }
+  else if (ap === "오전" || ap === "아침" || ap === "새벽") { if (h === 12) h = 0; }
+  else if (ap === "낮") { if (h < 6) h += 12; }
+  return { h, mi };
+}
+const T_RE = "(?:(오전|오후|아침|저녁|밤|새벽|낮)\\s*)?(\\d{1,2})(?:\\s*:\\s*(\\d{2})|\\s*시(?:\\s*(\\d{1,2})\\s*분|\\s*(반))?)";
+function readT(m, off) {
+  const ap = m[off] || "", h = +m[off + 1], mi = m[off + 2] != null ? +m[off + 2] : m[off + 3] != null ? +m[off + 3] : m[off + 4] ? 30 : 0;
+  return { ap, h, mi };
+}
+const hm = (o) => `${pad(o.h)}:${pad(o.mi)}`;
+
+function parseSentence(text, baseMonday, todayStr) {
+  const src = normalize(text);
+  let t = " " + src + " ";
+  const out = { date: "", start: "", end: "", title: "", place: "", target: "", owner: "", note: "", detail: "" };
+  const warn = [], info = [];
+  const cut = (re, fn) => { let hit = false; t = t.replace(re, (...a) => { if (hit) return a[0]; hit = true; const r = fn(a); return typeof r === "string" ? r : " | "; }); return hit; };
+  const baseYear = parseYmd(baseMonday).getFullYear();
+
+  /* ----- 날짜 ----- */
+  let dateDone = false, statedWd = null;
+  const setDate = (y, m, d, how) => {
+    if (!validDate(y, m, d)) { warn.push(`'${m}월 ${d}일'은 없는 날짜입니다. 날짜를 확인하세요.`); dateDone = true; return; }
+    out.date = ymd(new Date(y, m - 1, d)); dateDone = true; if (how) info.push(how);
+  };
+  const resolveMD = (m, d) => {
+    let y = baseYear;
+    if (validDate(y, m, d) && ymd(new Date(y, m - 1, d)) < baseMonday) y++;
+    setDate(y, m, d, `연도가 없어 ${y}년으로 해석했습니다.`);
+  };
+  // 2026년 10월 27일 / 2026-10-27 / 2026.10.27
+  cut(/(\d{4})\s*(?:년\s*|[.\-\/]\s*)(\d{1,2})\s*(?:월\s*|[.\-\/]\s*)(\d{1,2})\s*일?\.?/, (a) => setDate(+a[1], +a[2], +a[3]));
+  // 10월 27일
+  if (!dateDone) cut(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/, (a) => resolveMD(+a[1], +a[2]));
+  // 10/27, 10.27 (시간 표기 13:30 과 구분)
+  if (!dateDone) cut(/(?<![\d:.])(\d{1,2})\s*[\/.]\s*(\d{1,2})(?![\d:]|\s*시)\.?/, (a) => { if (+a[1] >= 1 && +a[1] <= 12) resolveMD(+a[1], +a[2]); else warn.push(`'${a[0].trim()}'를 날짜로 읽지 못했습니다.`); });
+  // (화) 같은 요일 표기
+  cut(/\(\s*([월화수목금토일])\s*\)/, (a) => { statedWd = WD_IDX[a[1]]; });
+  // 이번 주 / 다음 주 / 다다음 주 / N주 후 + 요일
+  if (!dateDone) cut(/(이번\s*주|금주|이번주|다음\s*주|차주|내주|다다음\s*주|지난\s*주|저번\s*주|(\d)\s*주\s*(?:후|뒤))\s*(?:의\s*)?([월화수목금토일])(?:요일)?(?![가-힣])/, (a) => {
+    const w = a[1].replace(/\s/g, "");
+    const k = /다다음/.test(w) ? 2 : /다음|차주|내주/.test(w) ? 1 : /지난|저번/.test(w) ? -1 : a[2] ? +a[2] : 0;
+    const off = (WD_IDX[a[3]] + 6) % 7;
+    out.date = addDays(baseMonday, k * 7 + off); dateDone = true;
+    info.push(`'${a[0].trim()}'를 기준 주(${fmtMD(baseMonday)} 시작) 기준으로 해석했습니다.`);
+  });
+  // 요일만: 기준 주의 그 요일
+  if (!dateDone) cut(/([월화수목금토일])요일/, (a) => {
+    out.date = addDays(baseMonday, (WD_IDX[a[1]] + 6) % 7); dateDone = true;
+    warn.push(`'${a[1]}요일'만 있어 기준 주의 ${a[1]}요일로 해석했습니다. 다른 주라면 날짜를 고치세요.`);
+  });
+  // 오늘 / 내일 / 모레 / 글피 (실제 오늘 기준)
+  if (!dateDone) cut(/(오늘|내일|모레|글피)/, (a) => {
+    const k = { 오늘: 0, 내일: 1, 모레: 2, 글피: 3 }[a[1]];
+    out.date = addDays(todayStr, k); dateDone = true; info.push(`'${a[1]}'를 오늘(${fmtMD(todayStr)}) 기준으로 해석했습니다.`);
+  });
+  // 27일 만 있을 때: 기준 주 시작일 이후 가장 가까운 그 날짜
+  if (!dateDone) cut(/(?<![\d.])(\d{1,2})\s*일(?![간째차])/, (a) => {
+    const d = +a[1]; const b = parseYmd(baseMonday);
+    for (let i = 0; i < 3; i++) {
+      const y = b.getFullYear(), m = b.getMonth() + 1 + i;
+      const yy = y + Math.floor((m - 1) / 12), mm = ((m - 1) % 12) + 1;
+      if (validDate(yy, mm, d) && ymd(new Date(yy, mm - 1, d)) >= baseMonday) { out.date = ymd(new Date(yy, mm - 1, d)); break; }
+    }
+    dateDone = true;
+    if (out.date) warn.push(`'${d}일'만 있어 ${fmtFull(out.date)}로 해석했습니다. 확인하세요.`);
+  });
+  if (!out.date) warn.push("날짜를 찾지 못했습니다. 날짜를 입력하세요.");
+  if (out.date && statedWd != null && wdOf(out.date) !== statedWd) warn.push(`적힌 요일(${WD[statedWd]})과 날짜의 요일(${WD[wdOf(out.date)]})이 다릅니다.`);
+
+  /* ----- 시간 ----- */
+  const ambig = (o) => !o.ap && o.h >= 1 && o.h <= 6;
+  const range = new RegExp(T_RE + "\\s*(?:부터|~|-|에서부터)\\s*" + T_RE + "\\s*(?:까지)?");
+  let timeHit = cut(range, (a) => {
+    const s = readT(a, 1), e = readT(a, 6);
+    let S = to24(s.h, s.mi, s.ap);
+    if (ambig(s)) { S.h += 12; warn.push(`오전/오후가 없어 시작을 오후 ${s.h}시로 해석했습니다. 확인하세요.`); }
+    let E = to24(e.h, e.mi, e.ap || (s.ap === "오후" || s.ap === "저녁" || s.ap === "밤" ? "오후" : ""));
+    if (!e.ap && E.h < S.h && E.h + 12 > S.h && E.h + 12 <= 24) E.h += 12;
+    out.start = hm(S); out.end = hm(E);
+    if (out.end <= out.start) warn.push("종료 시간이 시작 시간보다 빠릅니다. 확인하세요.");
+  });
+  if (!timeHit) timeHit = cut(new RegExp(T_RE + "\\s*(?:에|부터|경|쯤|께)?(?![가-힣])"), (a) => {
+    const s = readT(a, 1); let S = to24(s.h, s.mi, s.ap);
+    if (ambig(s)) { S.h += 12; warn.push(`오전/오후가 없어 오후 ${s.h}시로 해석했습니다. 확인하세요.`); }
+    out.start = hm(S);
+  });
+  if (!timeHit) cut(/정오/, () => { out.start = "12:00"; });
+  if (out.start && (+out.start.slice(0, 2) > 24 || +out.start.slice(3) > 59)) { warn.push("시간 값이 올바르지 않습니다."); out.start = ""; out.end = ""; }
+  cut(/(?:하루\s*)?종일/, () => { out.note = "종일"; });
+
+  /* ----- 비고 ----- */
+  cut(/(?:^|[\s,|])(?:(?:비고|참고|준비물)\s*(?:은|는|:)|※)\s*([^|]+?)\s*(?=\||$)/, (a) => { out.note = [out.note, a[1].replace(/[,.\s]+$/, "")].filter(Boolean).join(", "); });
+  /* ----- 주관/담당 ----- */
+  if (!cut(/(?:주관|주최|담당(?:자)?)\s*(?:은|는|:)\s*([^,|]+?)\s*(?=,|\||$)/, (a) => { out.owner = a[1].trim(); }))
+    cut(/([^\s,|]+)\s*(?:주관|주최|담당)(?:으로|하에|하는|로|하여)?(?=[\s,|]|$)/, (a) => { out.owner = a[1].trim(); });
+  /* ----- 장소 ----- */
+  if (!cut(/장소\s*(?:는|은|:)?\s*([^,|]+?)\s*(?:에서)?\s*(?=,|\||$)/, (a) => { out.place = a[1].trim(); })) {
+    cut(/(?:^|[|,])\s*((?:[^\s,|]+\s){0,3}?[^\s,|]+)\s*에서(?=[\s,|]|$)/, (a) => {
+      let words = a[1].trim().split(" ");
+      const k = words.map((w) => /[을를]$/.test(w)).lastIndexOf(true);
+      let keep = "";
+      if (k >= 0) { keep = words.slice(0, k + 1).join(" "); words = words.slice(k + 1); }
+      out.place = words.join(" ");
+      return " | " + keep + " | ";
+    });
+  }
+  /* ----- 대상 ----- */
+  if (!cut(/대상\s*(?:은|는|:)\s*([^,|]+?)\s*(?=,|\||$)/, (a) => { out.target = a[1].trim(); })) {
+    cut(/((?:[^\s,|]+\s)?[^\s,|]+)\s*대상(?:으로|자|인원)?(?=[\s,|]|$)/, (a) => {
+      const w = a[1].trim().split(" ");
+      // '전 장병'처럼 앞 낱말이 한 글자 접두어일 때만 두 낱말을 대상으로 본다
+      if (w.length === 2 && !/^(전|각|모든|全|예하)$/.test(w[0])) { out.target = w[1]; return " " + w[0] + " | "; }
+      out.target = w.join(" ");
+    });
+  }
+
+  /* ----- 행사명 ----- */
+  let title = t.split("|").map((s) => s.trim()).filter(Boolean).join(" ")
+    .replace(/\s*,\s*/g, " ").replace(/\s+/g, " ").trim();
+  title = title
+    .replace(/^(?:에|에서|은|는|이|가|,|\.)\s+/, "")
+    .replace(/\s*(?:을|를)?\s*(?:할\s*거야|할\s*거예요|할\s*예정(?:이야|입니다|임|이다)?|할게요?|합니다|한다|함|하기로\s*함|예정(?:입니다|임|이다)?|있음|있습니다|있어요?|있다)\s*[.!~]*$/, "")
+    .replace(/\s*(?:을|를)\s+(?:실시|진행|시행)$/, "")
+    .replace(/\s+(?:실시|진행|시행)\s*(?:예정)?$/, "")
+    .replace(/[을를]$/, "")
+    .replace(/^[\s,.]+|[\s,.]+$/g, "");
+  if (!out.target) {
+    for (const a of AUDIENCE) {
+      if (title.startsWith(a + " ") && title.length > a.length + 1) { out.target = a; title = title.slice(a.length + 1).trim(); break; }
+    }
+  }
+  out.title = title;
+  if (!out.title) warn.push("행사명을 찾지 못했습니다. 행사명을 입력하세요.");
+  return { data: out, warn, info, raw: src };
+}
+/*CORE-END*/
+
+/* =====================================================================
+   상태·저장
+   ===================================================================== */
+const KEY = "weekly-plan-v1";
+const todayStr = () => ymd(new Date());
+function freshState() {
+  return { v: 1, meta: { unit: "", title: "주간 예정사항", author: "", written: todayStr(), weekStart: mondayOf(todayStr()), weeks: 4, monthView: false }, notes: {}, events: [] };
+}
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.meta && Array.isArray(s.events)) return s; } catch (e) {}
+  return null;
+}
+let state = load() || freshState();
+let saveTimer = null, storageOk = true;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); storageOk = true; $("saveState").textContent = `자동 저장됨 ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`; }
+    catch (e) { storageOk = false; $("saveState").textContent = "브라우저 저장소를 쓸 수 없습니다. 백업(JSON)으로 저장하세요."; }
+    if (typeof cloudSave === "function") cloudSave();
+  }, 250);
+}
+const uid = () => "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+function newEvent(d) {
+  return Object.assign({ id: uid(), date: "", start: "", end: "", title: "", place: "", target: "", owner: "", note: "", detail: "", onP1: true, onCal: true, rank: null, order: Date.now() + Math.random(), demo: false }, d || {});
+}
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs, ...kids) => {
+  const e = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids) if (k != null && k !== false) e.append(k);
+  return e;
+};
+
+/* 기간 계산 */
+function period() {
+  const s = state.meta.weekStart, n = +state.meta.weeks || 4;
+  return { start: s, end: addDays(s, n * 7 - 1), weekEnd: addDays(s, 6), n };
+}
+const timeKey = (e) => (e.start ? e.start : "");
+function sortEvents(list) {
+  const rk = (e) => (e.rank == null ? 1e9 : e.rank);
+  return list.slice().sort((a, b) => a.date.localeCompare(b.date) || (rk(a) - rk(b)) || timeKey(a).localeCompare(timeKey(b)) || (a.order - b.order));
+}
+function sortForCal(list) {
+  return list.slice().sort((a, b) => (a.start ? 1 : 0) - (b.start ? 1 : 0) || timeKey(a).localeCompare(timeKey(b)) || a.order - b.order);
+}
+function timeText(e, sep = "~") { return e.start ? (e.end ? `${e.start}${sep}${e.end}` : e.start) : ""; }
+
+/* =====================================================================
+   편집 폼 (대화상자와 검토 카드에서 함께 사용)
+   ===================================================================== */
+function buildFields(d, idp, onChange) {
+  const box = el("div", { style: "display:flex;flex-direction:column;gap:8px" });
+  const inp = (key, label, type, extra) => {
+    const id = `${idp}-${key}`;
+    const i = el("input", Object.assign({ id, type: type || "text", value: d[key] || "" }, extra || {}));
+    if (type === "checkbox") { i.checked = !!d[key]; i.addEventListener("change", () => { d[key] = i.checked; onChange && onChange(key); }); return el("label", { class: "chk", for: id }, i, label); }
+    i.value = d[key] || "";
+    const need = () => i.classList.toggle("need", (key === "date" || key === "title") && !i.value);
+    need();
+    i.addEventListener("input", () => { d[key] = i.value.trim(); need(); onChange && onChange(key); });
+    return el("label", { class: "f", for: id }, el("span", { text: label }), i);
+  };
+  box.append(
+    el("div", { class: "grid3" }, inp("date", "날짜 *", "date"), inp("start", "시작 시간", "time"), inp("end", "종료 시간", "time")),
+    el("div", { class: "grid2" }, el("div", { class: "span2" }, inp("title", "행사명(예정사항) *")), inp("place", "장소"), inp("target", "대상"), inp("owner", "주관/담당"), inp("note", "비고")),
+  );
+  const tid = `${idp}-detail`;
+  const ta = el("textarea", { id: tid, rows: "3", placeholder: "세부 내용, 준비사항 등 (1페이지 표에 함께 인쇄됩니다)" });
+  ta.value = d.detail || "";
+  ta.addEventListener("input", () => { d.detail = ta.value; onChange && onChange("detail"); });
+  box.append(el("label", { class: "f", for: tid }, el("span", { text: "상세 내용 / 준비사항" }), ta));
+  box.append(el("div", { class: "row-btns" }, inp("onP1", "1페이지 상세표에 포함", "checkbox"), inp("onCal", "월력표에 표시", "checkbox")));
+  return box;
+}
+
+function validate(d) {
+  if (!d.date) return "날짜를 입력하세요.";
+  if (!d.title) return "행사명을 입력하세요.";
+  if (d.start && d.end && d.end <= d.start) return "종료 시간이 시작 시간보다 늦어야 합니다.";
+  return "";
+}
+
+/* 대화상자 */
+let dlgCtx = null;
+function openEditor(ev, opts = {}) {
+  const draft = Object.assign({}, ev);
+  dlgCtx = { ev, draft, isNew: !!opts.isNew };
+  $("dlgTitle").textContent = opts.title || (opts.isNew ? "새 일정" : "일정 수정");
+  const interp = () => { $("dlgInterp").textContent = draft.date ? fmtFull(draft.date) + (draft.start ? " " + timeText(draft) : "") : "날짜를 입력하세요"; };
+  $("dlgFields").replaceChildren(buildFields(draft, "dlg", interp));
+  interp();
+  $("dlgDelete").hidden = !!opts.isNew;
+  $("dlg").showModal();
+  setTimeout(() => { const f = $(opts.focus ? `dlg-${opts.focus}` : "dlg-title"); f && f.focus(); }, 30);
+}
+$("dlgForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const { ev, draft, isNew } = dlgCtx;
+  const err = validate(draft);
+  if (err) { alert(err); return; }
+  Object.assign(ev, draft);
+  if (isNew) state.events.push(ev);
+  $("dlg").close(); save(); renderAll();
+});
+$("dlgCancel").onclick = () => $("dlg").close();
+$("dlgDelete").onclick = () => {
+  if (!confirm(`'${dlgCtx.ev.title}' 일정을 삭제할까요?`)) return;
+  state.events = state.events.filter((x) => x !== dlgCtx.ev);
+  $("dlg").close(); save(); renderAll();
+};
+
+/* =====================================================================
+   자연어 입력 → 검토
+   ===================================================================== */
+let drafts = [];
+let curPage = "all";
+function doParse() {
+  const lines = $("nlInput").value.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  if (!lines.length) { $("nlInput").focus(); return; }
+  for (const l of lines) {
+    const r = parseSentence(l, state.meta.weekStart, todayStr());
+    drafts.push({ key: uid(), raw: r.raw, warn: r.warn, info: r.info, data: newEvent(r.data) });
+  }
+  $("nlInput").value = "";
+  renderReview();
+}
+function renderReview() {
+  const box = $("review"); box.replaceChildren();
+  if (!drafts.length) return;
+  box.append(el("p", { class: "hint", text: `검토할 일정 ${drafts.length}건 · 빈칸은 비워 둬도 됩니다 (날짜·행사명은 필수)` }));
+  for (const dr of drafts) {
+    const interp = el("p", { class: "interp" });
+    const upd = () => { interp.textContent = dr.data.date ? `해석: ${fmtFull(dr.data.date)}${dr.data.start ? " " + timeText(dr.data) : " (시간 없음)"}` : "해석: 날짜 없음"; };
+    upd();
+    const msgs = el("ul", { class: "msgs" });
+    dr.warn.forEach((w) => msgs.append(el("li", { class: "w", text: "확인: " + w })));
+    dr.info.forEach((w) => msgs.append(el("li", { class: "i", text: w })));
+    const card = el("div", { class: "rcard" },
+      el("p", { class: "raw", text: "입력: " + dr.raw }), interp, msgs.childNodes.length ? msgs : null,
+      buildFields(dr.data, "r-" + dr.key, upd),
+      el("div", { class: "row-btns" },
+        el("button", { type: "button", class: "primary", text: "이 일정 저장", onclick: () => saveDraft(dr) }),
+        el("button", { type: "button", text: "버리기", onclick: () => { drafts = drafts.filter((x) => x !== dr); renderReview(); } })));
+    box.append(card);
+  }
+  if (drafts.length > 1) box.append(el("div", { class: "row-btns" },
+    el("button", { type: "button", class: "primary", text: `모두 저장 (${drafts.length}건)`, onclick: () => { for (const d of drafts.slice()) if (!saveDraft(d, true)) return; } })));
+}
+function saveDraft(dr, quiet) {
+  const err = validate(dr.data);
+  if (err) { alert(`'${dr.raw}'\n\n${err}`); return false; }
+  state.events.push(dr.data);
+  drafts = drafts.filter((x) => x !== dr);
+  save(); renderReview(); renderAll();
+  return true;
+}
+
+/* =====================================================================
+   일정 목록
+   ===================================================================== */
+function renderList() {
+  const q = $("q").value.trim().toLowerCase(), rg = $("range").value, p = period();
+  let list = state.events.filter((e) => {
+    if (rg === "period" && (e.date < p.start || e.date > p.end)) return false;
+    if (rg === "week" && (e.date < p.start || e.date > p.weekEnd)) return false;
+    if (rg === "future" && e.date < p.start) return false;
+    if (rg === "past" && e.date >= p.start) return false;
+    if (q && ![e.title, e.place, e.target, e.owner, e.note, e.detail].join(" ").toLowerCase().includes(q)) return false;
+    return true;
+  });
+  list = sortEvents(list).sort((a, b) => a.date.localeCompare(b.date) || timeKey(a).localeCompare(timeKey(b)));
+  const ul = $("evList"); ul.replaceChildren();
+  $("listCount").textContent = `${list.length}건 / 전체 ${state.events.length}건`;
+  if (!list.length) ul.append(el("li", { style: "border:none;padding:0" }, el("p", { class: "empty", text: state.events.length ? "조건에 맞는 일정이 없습니다." : "아직 일정이 없습니다. 위에 문장으로 입력해 보세요." })));
+  for (const e of list) {
+    const sub = [e.place && "장소 " + e.place, e.target && "대상 " + e.target, e.owner && "주관 " + e.owner].filter(Boolean).join(" · ");
+    ul.append(el("li", null,
+      el("div", { class: "top" },
+        el("span", { class: "dt", text: `${fmtMD(e.date)} ${timeText(e)}` }),
+        el("span", { class: "tt" }, e.title, e.demo ? el("span", { class: "tag demo", text: "예시" }) : null, !e.onP1 ? el("span", { class: "tag", text: "1p 제외" }) : null, !e.onCal ? el("span", { class: "tag", text: "월력 제외" }) : null)),
+      sub ? el("div", { class: "sub", text: sub }) : null,
+      el("div", { class: "row-btns" },
+        el("button", { type: "button", class: "sm", text: "수정", onclick: () => openEditor(e) }),
+        el("button", { type: "button", class: "sm", text: "복사", "aria-label": `${e.title} 복사`, onclick: () => openEditor(newEvent(Object.assign({}, e, { id: uid(), order: Date.now(), rank: null, demo: false })), { isNew: true, title: "일정 복사 — 날짜를 지정하세요", focus: "date" }) }),
+        el("button", { type: "button", class: "sm", text: "날짜 이동", onclick: () => openEditor(e, { title: "다른 날짜로 이동", focus: "date" }) }),
+        el("button", { type: "button", class: "sm danger", text: "삭제", onclick: () => { if (confirm(`'${e.title}' 일정을 삭제할까요?`)) { state.events = state.events.filter((x) => x !== e); save(); renderAll(); } } }))));
+  }
+  $("demoTools").hidden = !state.events.some((e) => e.demo);
+}
+
+/* =====================================================================
+   1페이지: 이번 주 상세 예정사항
+   ===================================================================== */
+function docHead(pageLabel) {
+  const m = state.meta, p = period();
+  return el("div", null,
+    el("div", { class: "doc-head" },
+      el("div", { class: "doc-unit", text: m.unit || "" }),
+      el("h2", { class: "doc-title", text: m.title || "주간 예정사항" }),
+      el("div", { class: "doc-meta" }, el("div", { text: `작성일: ${m.written ? fmtDot(m.written) : ""}` }), el("div", { text: `작성자: ${m.author || ""}` }))),
+    el("p", { class: "doc-period", text: `${weekName(p.start)} (${fmtDot(p.start)} ~ ${fmtDot(p.weekEnd)})` }));
+}
+function renderP1() {
+  const p = period(), body = $("p1"); body.replaceChildren();
+  body.append(docHead());
+  body.append(el("div", { class: "sec-title", text: "1. 금주 상세 예정사항" }));
+  const rows = sortEvents(state.events.filter((e) => e.onP1 && e.date >= p.start && e.date <= p.weekEnd));
+  if (!rows.length) body.append(el("div", { class: "p1-empty", text: "이번 주에 등록된 상세 예정사항이 없습니다." }));
+  else {
+    const tb = el("tbody");
+    const tbl = el("table", { class: "p1" },
+      el("colgroup", null, ...[15, 33, 15, 12, 13, 12].map((w) => el("col", { style: `width:${w}%` }))),
+      el("thead", null, el("tr", null, ...["일자/시간", "예정사항", "장소", "대상", "주관/담당", "비고"].map((h) => el("th", { scope: "col", text: h })))), tb);
+    rows.forEach((e, i) => {
+      const prev = rows[i - 1], next = rows[i + 1];
+      const first = !prev || prev.date !== e.date;
+      const tools = el("div", { class: "rowtools no-print" },
+        el("button", { type: "button", text: "▲", "aria-label": "위로", disabled: !prev || prev.date !== e.date, onclick: () => swap(e, prev) }),
+        el("button", { type: "button", text: "▼", "aria-label": "아래로", disabled: !next || next.date !== e.date, onclick: () => swap(e, next) }),
+        el("button", { type: "button", text: "수정", onclick: () => openEditor(e) }));
+      tb.append(el("tr", { class: first && i ? "day-first" : null },
+        el("td", { class: "dt" }, first ? el("div", { style: "font-weight:700", text: fmtMD(e.date) }) : null, el("div", { text: timeText(e) })),
+        el("td", null, el("div", { class: "ttl" }, e.title, e.demo ? el("span", { class: "tag demo no-print", text: "예시" }) : null), e.detail ? el("div", { class: "det", text: e.detail }) : null, tools),
+        el("td", { class: "c", text: e.place }), el("td", { class: "c", text: e.target }), el("td", { class: "c", text: e.owner }), el("td", { text: e.note })));
+    });
+    body.append(tbl);
+  }
+  body.append(el("div", { class: "sec-title", text: "2. 주요 준비 및 특기사항" }));
+  const key = p.start, ta = el("textarea", { class: "notes-edit no-print", id: "weekNotes", "aria-label": "주요 준비 및 특기사항", placeholder: "이번 주 준비사항, 협조사항, 특기사항을 적으세요. (인쇄에 포함)" });
+  ta.value = state.notes[key] || "";
+  const pr = el("div", { class: "notes-print print-only", text: ta.value || " " });
+  ta.addEventListener("input", () => { state.notes[key] = ta.value; pr.textContent = ta.value || " "; save(); });
+  ta.addEventListener("change", fitAll);
+  body.append(ta, pr);
+  body.append(el("div", { class: "foot", text: "- 1 -" }));
+}
+function swap(a, b) {
+  if (!b) return;
+  const p = period();
+  const day = sortEvents(state.events.filter((e) => e.onP1 && e.date === a.date));
+  day.forEach((e, i) => { e.rank = i; });
+  const t = a.rank; a.rank = b.rank; b.rank = t;
+  save(); renderAll();
+}
+
+/* =====================================================================
+   2페이지: 월력표
+   ===================================================================== */
+function calRange() {
+  const p = period();
+  if (!state.meta.monthView) return { from: p.start, to: p.end };
+  const s = parseYmd(p.start), e = parseYmd(p.end);
+  const first = ymd(new Date(s.getFullYear(), s.getMonth(), 1));
+  const last = ymd(new Date(e.getFullYear(), e.getMonth() + 1, 0));
+  return { from: mondayOf(first), to: addDays(mondayOf(last), 6) };
+}
+function renderP2() {
+  const p = period(), m = state.meta, body = $("p2"); body.replaceChildren();
+  const r = calRange(), today = todayStr();
+  const months = new Set(); for (let d = p.start; d <= p.end; d = addDays(d, 1)) months.add(parseYmd(d).getMonth() + 1);
+  body.append(el("div", { class: "cal-head" },
+    el("div", null, el("div", { style: "font-weight:600", text: m.unit || "" }), el("div", { class: "t", text: `향후 ${p.n}주 주요 일정` })),
+    el("div", { class: "m" }, el("div", { text: `${fmtDot(p.start)} ~ ${fmtDot(p.end)} (${[...months].join("·")}월)` }), el("div", { text: `작성일 ${m.written ? fmtDot(m.written) : ""}  작성자 ${m.author || ""}` }))));
+  body.append(el("div", { class: "legend" },
+    el("span", null, el("i", { class: "tw" }), "이번 주 (" + weekName(p.start).replace(/^\d+년 /, "") + ")"),
+    state.meta.monthView ? el("span", null, el("i", { class: "out" }), "기간 밖 날짜(옅게)") : null,
+    el("span", { text: "○ 시작시간 행사명 / 장소 · 대상" })));
+  const cal = el("div", { class: "cal", id: "cal" });
+  cal.append(el("div", { class: "h", text: "주" }));
+  ["월", "화", "수", "목", "금", "토", "일"].forEach((w, i) => cal.append(el("div", { class: "h" + (i === 5 ? " sat" : i === 6 ? " sun" : ""), text: w })));
+  const byDate = {};
+  for (const e of state.events) if (e.onCal && e.date >= r.from && e.date <= r.to) (byDate[e.date] = byDate[e.date] || []).push(e);
+  let rowsN = 0;
+  for (let w = r.from; w <= r.to; w = addDays(w, 7)) {
+    rowsN++;
+    const tw = w === p.start, inP = w >= p.start && w <= p.end, k = weekOfMonth(w);
+    cal.append(el("div", { class: "wk" + (tw ? " tw" : ""), style: inP ? null : "color:var(--faint)", text: `${k.m}월\n${k.w}주` + (tw ? "\n(이번\n주)" : "") }));
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(w, i), dd = parseYmd(d);
+      const out = d < p.start || d > p.end;
+      const cls = ["day", i === 5 && "sat", i === 6 && "sun", tw && "tw", out && "out", d === today && "today"].filter(Boolean).join(" ");
+      const showMonth = dd.getDate() === 1 || (w === r.from && i === 0);
+      const cell = el("div", { class: cls, "data-date": d },
+        el("div", { class: "dn" }, el("span", null, showMonth ? el("span", { class: "mo", text: `${dd.getMonth() + 1}월 ` }) : null, String(dd.getDate()))));
+      for (const e of sortForCal(byDate[d] || [])) {
+        const demoTag = e.title.startsWith("[예시] ") ? "[예시] " : "", bare = e.title.slice(demoTag.length);
+        const head = demoTag + [e.start, e.target && !bare.includes(e.target) ? e.target : "", bare].filter(Boolean).join(" ");
+        const l2 = [e.place && `장소 ${e.place}`, e.target && `대상 ${e.target}`].filter(Boolean).join(" · ");
+        const evEl = el("div", { class: "ev", "data-id": e.id, title: "눌러서 수정" }, el("div", { class: "l1", text: "○ " + head }), l2 ? el("div", { class: "l2", text: l2 }) : null);
+        cell.append(evEl);
+      }
+      cal.append(cell);
+    }
+  }
+  body.append(cal);
+  body.append(el("div", { class: "foot", text: "- 2 -" }));
+  cal.dataset.rows = rowsN;
+}
+$("sheets").addEventListener("click", (e) => {
+  const ev = e.target.closest(".ev[data-id]");
+  if (ev) { const x = state.events.find((z) => z.id === ev.dataset.id); if (x) openEditor(x); return; }
+  const day = e.target.closest(".day[data-date]");
+  if (day) openEditor(newEvent({ date: day.dataset.date }), { isNew: true, title: `${fmtFull(day.dataset.date)} 일정 추가` });
+});
+
+/* =====================================================================
+   A4 맞춤: 넘치면 글자 크기를 단계적으로 줄인다
+   ===================================================================== */
+function fitSheet(sheet, body, basePt, minPt, before) {
+  sheet.classList.remove("grown");
+  let fs = basePt;
+  body.style.setProperty("--fs", fs + "pt");
+  if (before) before();
+  let guard = 0;
+  while (body.scrollHeight > body.clientHeight + 1 && fs > minPt && guard++ < 40) {
+    fs = Math.round((fs - 0.25) * 100) / 100;
+    body.style.setProperty("--fs", fs + "pt");
+    if (before) before();
+  }
+  const over = body.scrollHeight > body.clientHeight + 1;
+  if (over) sheet.classList.add("grown");
+  return { fs, over };
+}
+function calRowMin() {
+  const cal = $("cal"); if (!cal) return;
+  cal.style.setProperty("--rowmin", "0px");
+  const body = $("p2"), n = +cal.dataset.rows || 4;
+  const used = [...body.children].filter((c) => c !== cal).reduce((s, c) => s + c.offsetHeight, 0);
+  const head = cal.querySelector(".h").offsetHeight;
+  const avail = body.clientHeight - used - head - 24;
+  cal.style.setProperty("--rowmin", Math.max(40, Math.floor(avail / n)) + "px");
+}
+function fitAll() {
+  $("zw1").style.display = ""; $("zw2").style.display = "";
+  const a = fitSheet($("sheet1"), $("p1"), 10.5, 8);
+  const b = fitSheet($("sheet2"), $("p2"), 9, 6.5, calRowMin);
+  const msgs = [];
+  if (a.over) msgs.push("1페이지 내용이 A4 한 장을 넘어 2장으로 인쇄됩니다. 상세 내용을 줄이거나 일부 일정을 '1페이지 상세표에 포함'에서 빼세요.");
+  if (b.over) msgs.push("월력표 일정이 많아 한 장을 넘습니다. 일정을 줄이거나 '월력표에 표시'를 꺼 주세요.");
+  if (!a.over && a.fs < 10.5 || !b.over && b.fs < 9) msgs.push(`A4에 맞추려고 글자를 줄였습니다 (1페이지 ${a.fs}pt · 2페이지 ${b.fs}pt).`);
+  $("fitWarn").hidden = !msgs.length; $("fitWarn").textContent = msgs.join(" ");
+  showPage(curPage);
+  zoomPreview();
+}
+function zoomPreview() {
+  const host = $("sheets"), avail = host.clientWidth;
+  for (const z of [$("zw1"), $("zw2")]) {
+    const s = z.firstElementChild, w = s.offsetWidth, h = s.offsetHeight;
+    const k = Math.min(1, (avail - 4) / w);
+    s.style.transform = k < 1 ? `scale(${k})` : "";
+    z.style.width = w * k + "px";
+    z.style.height = h * k + "px";
+  }
+}
+window.addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(zoomPreview, 120); });
+window.addEventListener("beforeprint", () => { showPage("all"); });
+window.addEventListener("afterprint", () => { showPage(curPage); zoomPreview(); });
+
+/* =====================================================================
+   전체 렌더
+   ===================================================================== */
+function renderMeta() {
+  const m = state.meta, p = period();
+  $("mUnit").value = m.unit; $("mTitle").value = m.title; $("mWeek").value = m.weekStart;
+  $("mWeeks").value = String(m.weeks); $("mMonth").checked = !!m.monthView; $("mWritten").value = m.written; $("mAuthor").value = m.author;
+  $("weekLabel").textContent = `${weekName(p.start)} · ${fmtMD(p.start)} ~ ${fmtMD(p.weekEnd)}`;
+}
+function renderAll() { renderMeta(); renderList(); renderP1(); renderP2(); fitAll(); }
+
+function showPage(k) {
+  $("zw1").style.display = k === "2" ? "none" : "";
+  $("zw2").style.display = k === "1" ? "none" : "";
+  [["all", "tabAll"], ["1", "tab1"], ["2", "tab2"]].forEach(([v, id]) => $(id).setAttribute("aria-pressed", String(v === k)));
+}
+$("tabAll").onclick = () => { curPage = "all"; showPage("all"); zoomPreview(); };
+$("tab1").onclick = () => { curPage = "1"; showPage("1"); zoomPreview(); };
+$("tab2").onclick = () => { curPage = "2"; showPage("2"); zoomPreview(); };
+
+/* 메타 입력 */
+const bindMeta = (id, key, ev = "input") => $(id).addEventListener(ev, () => { state.meta[key] = $(id).value.trim(); save(); renderP1(); renderP2(); fitAll(); });
+bindMeta("mUnit", "unit"); bindMeta("mTitle", "title"); bindMeta("mAuthor", "author"); bindMeta("mWritten", "written", "change");
+function setWeek(s) {
+  if (!parseYmd(s)) return;
+  const mon = mondayOf(s);
+  if (mon !== s) $("saveState").textContent = `${fmtMD(s)}이(가) 속한 주의 월요일(${fmtMD(mon)})로 맞췄습니다.`;
+  state.meta.weekStart = mon; save(); renderAll();
+}
+$("mWeek").addEventListener("change", () => setWeek($("mWeek").value));
+$("weekPrev").onclick = () => setWeek(addDays(state.meta.weekStart, -7));
+$("weekNext").onclick = () => setWeek(addDays(state.meta.weekStart, 7));
+$("weekToday").onclick = () => setWeek(todayStr());
+$("mWeeks").onchange = () => { state.meta.weeks = +$("mWeeks").value; save(); renderAll(); };
+$("mMonth").onchange = () => { state.meta.monthView = $("mMonth").checked; save(); renderAll(); };
+
+/* 입력 방식 */
+$("modeNl").onclick = () => { $("nlBox").hidden = false; $("formBox").hidden = true; $("modeNl").setAttribute("aria-pressed", "true"); $("modeForm").setAttribute("aria-pressed", "false"); };
+$("modeForm").onclick = () => { $("nlBox").hidden = true; $("formBox").hidden = false; $("modeNl").setAttribute("aria-pressed", "false"); $("modeForm").setAttribute("aria-pressed", "true"); };
+$("btnNewForm").onclick = () => openEditor(newEvent({ date: state.meta.weekStart }), { isNew: true, title: "새 일정 (항목별 입력)" });
+$("btnParse").onclick = doParse;
+$("nlInput").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doParse(); } });
+$("q").addEventListener("input", renderList);
+$("range").addEventListener("change", renderList);
+
+/* 데모 */
+$("btnDemo").onclick = () => {
+  const s = state.meta.weekStart;
+  const demo = [
+    { date: addDays(s, 0), start: "08:30", title: "주간 업무회의", place: "대대 회의실", target: "참모·중대장", owner: "작전과" },
+    { date: addDays(s, 1), start: "14:00", end: "16:00", title: "안전교육", place: "대대 회의실", target: "간부", owner: "작전과", detail: "동절기 안전사고 예방 사례 교육\n준비: 교육자료, 출석부" },
+    { date: addDays(s, 2), start: "09:00", title: "체력측정", place: "연병장", target: "전 장병", owner: "교육훈련과", note: "우천 시 순연" },
+    { date: addDays(s, 9), start: "13:30", end: "16:00", title: "장비 점검", place: "정비고", owner: "본부중대" },
+    { date: addDays(s, 17), title: "전술훈련", place: "훈련장", target: "1·2중대", note: "종일" },
+  ];
+  demo.forEach((d, i) => state.events.push(newEvent(Object.assign(d, { demo: true, title: "[예시] " + d.title, order: Date.now() + i }))));
+  save(); renderAll();
+};
+$("btnDelDemo").onclick = () => { if (confirm("예시 일정을 모두 삭제할까요?")) { state.events = state.events.filter((e) => !e.demo); save(); renderAll(); } };
+
+/* =====================================================================
+   백업 / 복원 / 인쇄
+   ===================================================================== */
+function download(name, text, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+const CSV_COLS = [["date", "날짜"], ["start", "시작"], ["end", "종료"], ["title", "행사명"], ["place", "장소"], ["target", "대상"], ["owner", "주관/담당"], ["note", "비고"], ["detail", "상세내용"], ["onP1", "1페이지"], ["onCal", "월력표"]];
+$("btnExportJson").onclick = () => download(`주간예정사항_백업_${todayStr()}.json`, JSON.stringify(state, null, 1), "application/json");
+$("btnExportCsv").onclick = () => {
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [CSV_COLS.map((c) => q(c[1])).join(",")].concat(sortEvents(state.events).map((e) => CSV_COLS.map(([k]) => q(typeof e[k] === "boolean" ? (e[k] ? "Y" : "N") : e[k])).join(",")));
+  download(`주간예정사항_일정_${todayStr()}.csv`, "﻿" + lines.join("\r\n"), "text/csv;charset=utf-8");
+};
+function parseCsv(text) {
+  const rows = []; let row = [], f = "", q = false;
+  text = text.replace(/^﻿/, "");
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true;
+    else if (c === ",") { row.push(f); f = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(f); rows.push(row); row = []; f = ""; }
+    else f += c;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows.filter((r) => r.some((x) => x.trim()));
+}
+$("btnImport").onclick = () => $("fileImport").click();
+$("fileImport").onchange = async (ev) => {
+  const file = ev.target.files[0]; ev.target.value = "";
+  if (!file) return;
+  const text = await file.text();
+  try {
+    if (/\.json$/i.test(file.name) || text.trim().startsWith("{")) {
+      const s = JSON.parse(text);
+      if (!s || !s.meta || !Array.isArray(s.events)) throw new Error("형식이 맞지 않습니다");
+      if (confirm(`백업 파일의 일정 ${s.events.length}건으로 지금 내용을 바꿀까요?\n[취소]를 누르면 지금 내용에 일정만 합칩니다.`)) {
+        state = Object.assign(freshState(), s); state.events = s.events.map((e) => newEvent(e)); state.notes = s.notes || {};
+      } else {
+        const ids = new Set(state.events.map((e) => e.id));
+        s.events.forEach((e) => { const n = newEvent(e); if (ids.has(n.id)) n.id = uid(); state.events.push(n); });
+        Object.entries(s.notes || {}).forEach(([k, v]) => { if (!state.notes[k]) state.notes[k] = v; });
+      }
+    } else {
+      const rows = parseCsv(text); const head = rows.shift() || [];
+      const idx = CSV_COLS.map(([k, h]) => [k, head.findIndex((x) => x.trim() === h)]);
+      let n = 0, bad = 0;
+      for (const r of rows) {
+        const e = newEvent();
+        idx.forEach(([k, i]) => { if (i < 0) return; const v = (r[i] || "").trim(); e[k] = k === "onP1" || k === "onCal" ? v !== "N" : v; });
+        const d = e.date.replace(/[./]/g, "-").replace(/-(\d)(?!\d)/g, "-0$1");
+        if (!parseYmd(d) || !e.title) { bad++; continue; }
+        e.date = d; state.events.push(e); n++;
+      }
+      alert(`CSV에서 일정 ${n}건을 추가했습니다.` + (bad ? `\n날짜나 행사명이 없는 ${bad}줄은 건너뛰었습니다.` : ""));
+    }
+    save(); renderAll();
+  } catch (e) { alert("파일을 읽지 못했습니다: " + e.message); }
+};
+$("btnPrint").onclick = () => { fitAll(); setTimeout(() => window.print(), 50); };
+
+/* =====================================================================
+   Supabase 클라우드 저장 (로그인한 본인 일정만 읽기·쓰기)
+   ===================================================================== */
+const SUPABASE_URL = "https://gshplsqijloulcequbqu.supabase.co";       // 예: https://abcdefgh.supabase.co
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzaHBsc3FpamxvdWxjZXF1YnF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0Nzg0OTEsImV4cCI6MjEwODA1NDQ5MX0.ozjmxXdM4sV_IqapgzIacAoviCx8pu95K48LxaUBi3U";  // Project Settings → API 의 anon(public) 키. 공개용 키라 코드에 넣어도 되지만, service_role 키는 절대 넣지 마세요.
+const TABLE = "weekly_plans";
+let sb = null, user = null, cloudReady = false, cloudTimer = null;
+try { if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch (e) { sb = null; }
+
+function renderAuth() {
+  const box = $("authBox"); box.replaceChildren();
+  if (!sb) { box.append(el("span", { text: "로컬 저장 모드" })); return; }
+  if (user) {
+    box.append(el("span", { class: "who", text: "☁ " + (user.email || "로그인됨") }),
+      el("button", { type: "button", class: "sm", text: "로그아웃", onclick: async () => { await sb.auth.signOut(); } }));
+  } else {
+    box.append(el("button", { type: "button", class: "sm", text: "로그인 (클라우드 저장)", onclick: () => { $("authMsg").textContent = ""; $("authDlg").showModal(); } }));
+  }
+}
+function cloudSave() {
+  if (!sb || !user || !cloudReady) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(async () => {
+    const { error } = await sb.from(TABLE).upsert({ user_id: user.id, state, updated_at: new Date().toISOString() });
+    $("saveState").textContent = error ? "클라우드 저장 실패: " + error.message + " (내 PC에는 저장됨)" : `클라우드에 저장됨 ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`;
+  }, 800);
+}
+async function cloudLoad() {
+  cloudReady = false;
+  $("saveState").textContent = "클라우드에서 불러오는 중…";
+  const { data, error } = await sb.from(TABLE).select("state, updated_at").eq("user_id", user.id).maybeSingle();
+  if (error) { $("saveState").textContent = "클라우드에서 불러오지 못했습니다: " + error.message; return; }
+  const localHas = state.events.some((e) => !e.demo);
+  if (data && data.state && Array.isArray(data.state.events)) {
+    const cloudHas = data.state.events.length > 0;
+    if (!cloudHas && localHas && confirm("클라우드에는 일정이 없습니다. 이 PC에 있는 일정을 계정에 올릴까요?")) { /* 로컬 유지 후 업로드 */ }
+    else { state = Object.assign(freshState(), data.state); state.events = data.state.events.map((e) => newEvent(e)); state.notes = data.state.notes || {}; }
+  } else if (localHas && !confirm("계정에 처음 로그인했습니다. 이 PC에 있는 일정을 계정에 올릴까요?\n[취소]를 누르면 빈 문서로 시작합니다.")) {
+    state = freshState();
+  }
+  cloudReady = true;
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+  renderAll(); cloudSave();
+}
+if (sb) {
+  sb.auth.onAuthStateChange((ev, session) => {
+    const next = session ? session.user : null;
+    const changed = (next && next.id) !== (user && user.id);
+    user = next; renderAuth();
+    if (changed && user) cloudLoad();
+    if (changed && !user) { cloudReady = false; $("saveState").textContent = "로그아웃했습니다. 지금부터는 이 PC에만 저장됩니다."; }
+  });
+}
+$("authClose").onclick = () => $("authDlg").close();
+function authInput() {
+  const email = $("authEmail").value.trim(), pw = $("authPw").value;
+  if (!/^\S+@\S+\.\S+$/.test(email)) { authMsg("이메일 주소를 확인하세요.", true); return null; }
+  if (pw.length < 6) { authMsg("비밀번호는 6자 이상이어야 합니다.", true); return null; }
+  return { email, password: pw };
+}
+function authMsg(t, err) { $("authMsg").textContent = t; $("authMsg").className = err ? "err" : ""; }
+$("authForm").addEventListener("submit", async (e) => {
+  e.preventDefault(); const c = authInput(); if (!c) return;
+  authMsg("로그인 중…");
+  const { error } = await sb.auth.signInWithPassword(c);
+  if (error) authMsg(/confirm/i.test(error.message) ? "이메일 인증이 아직 안 됐습니다. 메일함의 인증 링크를 먼저 누르세요." : "로그인 실패: 이메일이나 비밀번호를 확인하세요.", true);
+  else { $("authPw").value = ""; $("authDlg").close(); }
+});
+$("authSignup").onclick = async () => {
+  const c = authInput(); if (!c) return;
+  authMsg("가입 중…");
+  const { data, error } = await sb.auth.signUp(Object.assign(c, { options: { emailRedirectTo: location.origin + location.pathname } }));
+  if (error) authMsg("가입 실패: " + error.message, true);
+  else if (!data.session) authMsg("가입 확인 메일을 보냈습니다. 메일의 링크를 누른 뒤 로그인하세요.");
+  else { $("authPw").value = ""; $("authDlg").close(); }
+};
+
+/* 시작 */
+renderAuth();
+renderAll();
+if (!state.events.length) $("saveState").textContent = "처음 화면입니다. 왼쪽에 일정을 문장으로 입력하세요.";
+try { localStorage.setItem(KEY + "-test", "1"); localStorage.removeItem(KEY + "-test"); } catch (e) { $("saveState").textContent = "이 브라우저에서는 자동 저장이 되지 않습니다. 백업(JSON)을 이용하세요."; }
+</script>
+</body>
+</html>
