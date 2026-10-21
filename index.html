@@ -4,12 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>주간 예정사항</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <style>
 /* 화면: 왼쪽 입력·목록 / 오른쪽 A4 미리보기. 인쇄: A4 세로 1장(상세표) + A4 가로 1장(월력표). 외부 글꼴·스크립트 없음(인트라넷에서도 동작) */
 :root{
-  --ui-bg:#eceff2; --panel:#ffffff; --ink:#1a1d21; --muted:#59626c; --line:#cdd3d9; --line-strong:#8f98a2;
-  --accent:#24426b; --accent-ink:#ffffff; --accent-soft:#e7edf5;
+  /* 책상(짙은 남색) 위에 상아색 카드와 흰 종이를 올리는 구성 */
+  --ui-bg:#12213a; --panel:#f8f6f0; --ink:#1c2433; --muted:#5b6575; --line:#ddd7c8; --line-strong:#a69e8a; --field:#b9b19c;
+  --accent:#1d3557; --accent-ink:#ffffff; --accent-soft:#e9edf4;
+  --brass:#b8995a; --brass-hi:#dcc387; --brass-ink:#1a1405;
+  --bar:#0a1424; --bar-ink:#e8edf6; --bar-muted:#9db0cc; --bar-line:rgba(255,255,255,.18);
   --warn:#8a4b00; --warn-bg:#fff4e2; --danger:#a01b1b; --ok:#2d6a3a;
   --thisweek:#eef3f9; --faint:#a3abb3;
   --ui-font:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
@@ -18,16 +20,18 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0}
+html{scrollbar-color:#40557d #0d1829}
 body{background:var(--ui-bg);color:var(--ink);font-family:var(--ui-font);font-size:14px;line-height:1.5}
 button,input,select,textarea{font:inherit;color:inherit}
-button{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:6px;min-height:34px;padding:0 12px;white-space:nowrap}
-button:hover{border-color:var(--line-strong)}
+button{cursor:pointer;border:1px solid var(--field);background:#fff;border-radius:4px;min-height:34px;padding:0 12px;white-space:nowrap;transition:border-color .12s,background-color .12s}
+button:hover{border-color:var(--accent)}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 button.danger{color:var(--danger)}
 button.sm{min-height:28px;padding:0 8px;font-size:12px}
 button:disabled{opacity:.45;cursor:default}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-input[type=text],input[type=date],input[type=time],input[type=search],select,textarea{border:1px solid var(--line);border-radius:6px;background:#fff;min-height:34px;padding:4px 8px;width:100%}
+input[type=text],input[type=date],input[type=time],input[type=search],select,textarea{border:1px solid var(--field);border-radius:4px;background:#fff;min-height:34px;padding:4px 8px;width:100%}
+input[type=text]:focus,input[type=date]:focus,input[type=time]:focus,input[type=search]:focus,select:focus,textarea:focus{border-color:var(--accent)}
 textarea{resize:vertical;min-height:64px}
 label.f{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted);min-width:0}
 label.f > span{font-weight:600}
@@ -35,32 +39,44 @@ label.chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:va
 .hint{font-size:12px;color:var(--muted);margin:0}
 
 /* ---------- 상단 바 ---------- */
-.appbar{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-direction:column;gap:8px;position:sticky;top:0;z-index:5}
-.bar1{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.bar1 h1{font-size:18px;margin:0 8px 0 0;letter-spacing:-.01em}
+.appbar{background:var(--bar);color:var(--bar-ink);border-bottom:1px solid rgba(184,153,90,.55);padding:12px 24px;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:5}
+.bar1{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bar1 h1{font-family:var(--title-font);font-size:21px;font-weight:700;letter-spacing:.14em;color:#f1e8d0;margin:0 14px 0 0}
 .bar1 .grow{flex:1}
-.savestate{font-size:12px;color:var(--muted)}
-.authbox{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
-.authbox .who{color:var(--ok);font-weight:600}
-#authMsg{font-size:13px;margin:0;min-height:1.4em}
-#authMsg.err{color:var(--danger)}
-.bar2{display:grid;grid-template-columns:1.2fr 1fr auto auto 140px 1fr;gap:8px;align-items:end}
+.savestate{font-size:12px;color:var(--bar-muted)}
+.bar2{display:grid;grid-template-columns:1.2fr 1fr auto auto 140px 1fr;gap:10px;align-items:end;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)}
+.weekbox{display:flex;flex-direction:column;gap:2px}
+.wkhead{font-size:12px;font-weight:600}
 .weekctl{display:flex;gap:4px;align-items:end}
 .weekctl input{width:150px}
 .weeklabel{font-size:12px;color:var(--accent);font-weight:600;min-height:1.5em}
+/* 어두운 상단 바 안의 입력·버튼 */
+.appbar label.f,.appbar .wkhead{color:var(--bar-muted)}
+.appbar label.chk{color:var(--bar-ink)}
+.appbar .weeklabel{color:var(--brass-hi)}
+.appbar input[type=text],.appbar input[type=date],.appbar select{background:rgba(255,255,255,.07);border-color:var(--bar-line);color:var(--bar-ink);color-scheme:dark}
+.appbar input::placeholder{color:#6f7f99}
+.appbar input[type=text]:focus,.appbar input[type=date]:focus,.appbar select:focus{border-color:var(--brass);background:rgba(255,255,255,.11)}
+.appbar input[type=checkbox]{accent-color:var(--brass)}
+.appbar button{background:rgba(255,255,255,.06);border-color:var(--bar-line);color:var(--bar-ink)}
+.appbar button:hover{border-color:var(--brass);background:rgba(255,255,255,.11)}
+.appbar button.primary{background:var(--brass);border-color:var(--brass);color:var(--brass-ink);font-weight:700}
+.appbar button.primary:hover{background:var(--brass-hi);border-color:var(--brass-hi)}
+.appbar :focus-visible,.previewbar :focus-visible{outline-color:var(--brass-hi)}
 
 /* ---------- 본문 ---------- */
-.main{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;padding:16px;align-items:start}
-.side{display:flex;flex-direction:column;gap:12px;position:sticky;top:132px;max-height:calc(100vh - 148px);overflow:auto;padding-bottom:8px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px}
-.card h2{font-size:14px;margin:0;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.main{display:grid;grid-template-columns:400px minmax(0,1fr);gap:24px;padding:24px;align-items:start}
+.side{display:flex;flex-direction:column;gap:14px;position:sticky;top:calc(var(--bar-h,132px) + 16px);max-height:calc(100vh - var(--bar-h,132px) - 32px);overflow:auto;padding-bottom:8px;scrollbar-color:#40557d transparent}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card h2{font-family:var(--title-font);font-size:16px;font-weight:700;color:var(--accent);margin:0;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card h2 button,.card h2 .hint{font-family:var(--ui-font);font-weight:400}
 .tabs2{display:flex;gap:4px}
-.tabs2 button[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.tabs2 button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 .row-btns{display:flex;gap:6px;flex-wrap:wrap}
 
 /* 검토 카드 */
 .review{display:flex;flex-direction:column;gap:10px}
-.rcard{border:1px solid var(--accent);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;background:#fbfcfe}
+.rcard{border:1px solid var(--line);border-left:3px solid var(--brass);border-radius:4px;padding:10px;display:flex;flex-direction:column;gap:8px;background:#fffdf8}
 .rcard .raw{font-size:12px;color:var(--muted);margin:0}
 .rcard .interp{font-size:13px;font-weight:600;color:var(--accent);margin:0}
 .msgs{margin:0;padding-left:18px;font-size:12px}
@@ -74,9 +90,10 @@ input.need{border-color:var(--warn);background:var(--warn-bg)}
 /* 일정 목록 */
 .filters{display:grid;grid-template-columns:1fr 130px;gap:6px}
 .evlist{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
-.evlist li{border:1px solid var(--line);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}
+.evlist li{background:#fffefb;border:1px solid var(--line);border-radius:4px;padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.evlist li:hover{border-color:var(--brass)}
 .evlist .top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
-.evlist .dt{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);min-width:92px}
+.evlist .dt{font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;color:var(--accent);min-width:92px}
 .evlist .tt{font-weight:600;overflow-wrap:anywhere;flex:1;min-width:0}
 .evlist .sub{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
 .tag{display:inline-block;font-size:11px;border:1px solid var(--line-strong);border-radius:3px;padding:0 4px;color:var(--muted);margin-left:4px;font-weight:400}
@@ -86,13 +103,17 @@ input.need{border-color:var(--warn);background:var(--warn-bg)}
 /* ---------- 미리보기 ---------- */
 .previewbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 .previewbar .grow{flex:1}
-.warnbox{background:var(--warn-bg);color:var(--warn);border-radius:6px;padding:6px 10px;font-size:13px;margin:0 0 10px}
+.previewbar .hint{color:var(--bar-muted)}
+.previewbar .tabs2 button{background:transparent;border-color:var(--bar-line);color:#c6d1e3}
+.previewbar .tabs2 button:hover{border-color:var(--brass)}
+.previewbar .tabs2 button[aria-pressed=true]{background:var(--brass);border-color:var(--brass);color:var(--brass-ink);font-weight:700}
+.warnbox{background:var(--warn-bg);color:var(--warn);border-left:3px solid var(--brass);border-radius:4px;padding:6px 10px;font-size:13px;margin:0 0 10px}
 .sheets{display:flex;flex-direction:column;gap:20px;align-items:center}
 .zoomwrap{overflow:hidden;flex:none}
 .zoomwrap > .sheet{transform-origin:top left}
 
 /* ---------- 문서(A4) ---------- */
-.sheet{background:#fff;color:#000;box-shadow:0 1px 4px rgba(0,0,0,.18);font-family:var(--ui-font);position:relative}
+.sheet{background:#fff;color:#000;box-shadow:0 24px 48px -18px rgba(0,0,0,.65),0 0 0 1px rgba(0,0,0,.3);font-family:var(--ui-font);position:relative}
 .sheet.portrait{width:186mm;height:271mm}
 .sheet.landscape{width:277mm;height:188mm}
 .sheet-pad{padding:0}
@@ -182,21 +203,20 @@ table.p1 .day-first td{border-top:1.6px solid #000}
 }
 @media (max-width:560px){.bar2,.grid2,.grid3{grid-template-columns:1fr}}
 
-dialog{border:1px solid var(--line);border-radius:10px;padding:0;width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 40px)}
-dialog::backdrop{background:rgba(20,25,30,.45)}
-dialog form{display:flex;flex-direction:column;gap:10px;padding:16px}
-dialog h3{margin:0;font-size:16px}
+dialog{border:1px solid var(--line);border-top:3px solid var(--brass);border-radius:6px;padding:0;background:var(--panel);color:var(--ink);width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 40px);box-shadow:0 30px 60px -20px rgba(0,0,0,.7)}
+dialog::backdrop{background:rgba(7,13,24,.72)}
+dialog form{display:flex;flex-direction:column;gap:10px;padding:18px}
+dialog h3{font-family:var(--title-font);margin:0;font-size:18px;color:var(--accent)}
 dialog .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
 </style>
 </head>
 <body>
 
-<header class="appbar no-print">
+<header class="appbar no-print" id="appbar">
   <div class="bar1">
     <h1>주간 예정사항 작성</h1>
     <span class="savestate" id="saveState" aria-live="polite"></span>
     <span class="grow"></span>
-    <span id="authBox" class="authbox"></span>
     <button type="button" class="primary" id="btnPrint">인쇄 / PDF 저장</button>
     <button type="button" id="btnExportJson">백업(JSON)</button>
     <button type="button" id="btnExportCsv">내보내기(CSV)</button>
@@ -206,8 +226,8 @@ dialog .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
   <div class="bar2">
     <label class="f"><span>부대명</span><input type="text" id="mUnit" placeholder="예: 제00보병사단 000대대"></label>
     <label class="f"><span>문서 제목</span><input type="text" id="mTitle"></label>
-    <div class="f" style="display:flex;flex-direction:column;gap:2px">
-      <span style="font-size:12px;color:var(--muted);font-weight:600"><label for="mWeek">기준 주 (월요일 시작)</label> <span class="weeklabel" id="weekLabel"></span></span>
+    <div class="f weekbox">
+      <span class="wkhead"><label for="mWeek">기준 주 (월요일 시작)</label> <span class="weeklabel" id="weekLabel"></span></span>
       <div class="weekctl">
         <button type="button" id="weekPrev" aria-label="이전 주">◀</button>
         <input type="date" id="mWeek">
@@ -284,22 +304,6 @@ dialog .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
     </div>
   </section>
 </div>
-
-<dialog id="authDlg">
-  <form id="authForm">
-    <h3>로그인 (클라우드 저장)</h3>
-    <p class="hint" style="margin:0">로그인하면 일정이 내 계정에 저장되어 다른 PC에서도 이어서 쓸 수 있습니다. 내 일정은 나만 볼 수 있습니다.</p>
-    <label class="f" for="authEmail"><span>이메일</span><input type="text" id="authEmail" autocomplete="email" inputmode="email"></label>
-    <label class="f" for="authPw"><span>비밀번호 (6자 이상)</span><input type="password" id="authPw" autocomplete="current-password" style="border:1px solid var(--line);border-radius:6px;min-height:34px;padding:4px 8px;width:100%"></label>
-    <p id="authMsg" aria-live="polite"></p>
-    <div class="acts">
-      <button type="button" id="authSignup">처음이면 회원가입</button>
-      <span style="flex:1"></span>
-      <button type="button" id="authClose">닫기</button>
-      <button type="submit" class="primary">로그인</button>
-    </div>
-  </form>
-</dialog>
 
 <dialog id="dlg">
   <form method="dialog" id="dlgForm">
@@ -510,7 +514,6 @@ function save() {
   saveTimer = setTimeout(() => {
     try { localStorage.setItem(KEY, JSON.stringify(state)); storageOk = true; $("saveState").textContent = `자동 저장됨 ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`; }
     catch (e) { storageOk = false; $("saveState").textContent = "브라우저 저장소를 쓸 수 없습니다. 백업(JSON)으로 저장하세요."; }
-    if (typeof cloudSave === "function") cloudSave();
   }, 250);
 }
 const uid = () => "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -865,7 +868,9 @@ function renderMeta() {
   $("mWeeks").value = String(m.weeks); $("mMonth").checked = !!m.monthView; $("mWritten").value = m.written; $("mAuthor").value = m.author;
   $("weekLabel").textContent = `${weekName(p.start)} · ${fmtMD(p.start)} ~ ${fmtMD(p.weekEnd)}`;
 }
-function renderAll() { renderMeta(); renderList(); renderP1(); renderP2(); fitAll(); }
+function syncBar() { const b = $("appbar"); if (b) document.documentElement.style.setProperty("--bar-h", b.offsetHeight + "px"); }
+window.addEventListener("resize", syncBar);
+function renderAll() { renderMeta(); renderList(); renderP1(); renderP2(); fitAll(); syncBar(); }
 
 function showPage(k) {
   $("zw1").style.display = k === "2" ? "none" : "";
@@ -980,85 +985,7 @@ $("fileImport").onchange = async (ev) => {
 };
 $("btnPrint").onclick = () => { fitAll(); setTimeout(() => window.print(), 50); };
 
-/* =====================================================================
-   Supabase 클라우드 저장 (로그인한 본인 일정만 읽기·쓰기)
-   ===================================================================== */
-const SUPABASE_URL = "https://gshplsqijloulcequbqu.supabase.co";       // 예: https://abcdefgh.supabase.co
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzaHBsc3FpamxvdWxjZXF1YnF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0Nzg0OTEsImV4cCI6MjEwODA1NDQ5MX0.ozjmxXdM4sV_IqapgzIacAoviCx8pu95K48LxaUBi3U";  // Project Settings → API 의 anon(public) 키. 공개용 키라 코드에 넣어도 되지만, service_role 키는 절대 넣지 마세요.
-const TABLE = "weekly_plans";
-let sb = null, user = null, cloudReady = false, cloudTimer = null;
-try { if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch (e) { sb = null; }
-
-function renderAuth() {
-  const box = $("authBox"); box.replaceChildren();
-  if (!sb) { box.append(el("span", { text: "로컬 저장 모드" })); return; }
-  if (user) {
-    box.append(el("span", { class: "who", text: "☁ " + (user.email || "로그인됨") }),
-      el("button", { type: "button", class: "sm", text: "로그아웃", onclick: async () => { await sb.auth.signOut(); } }));
-  } else {
-    box.append(el("button", { type: "button", class: "sm", text: "로그인 (클라우드 저장)", onclick: () => { $("authMsg").textContent = ""; $("authDlg").showModal(); } }));
-  }
-}
-function cloudSave() {
-  if (!sb || !user || !cloudReady) return;
-  clearTimeout(cloudTimer);
-  cloudTimer = setTimeout(async () => {
-    const { error } = await sb.from(TABLE).upsert({ user_id: user.id, state, updated_at: new Date().toISOString() });
-    $("saveState").textContent = error ? "클라우드 저장 실패: " + error.message + " (내 PC에는 저장됨)" : `클라우드에 저장됨 ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`;
-  }, 800);
-}
-async function cloudLoad() {
-  cloudReady = false;
-  $("saveState").textContent = "클라우드에서 불러오는 중…";
-  const { data, error } = await sb.from(TABLE).select("state, updated_at").eq("user_id", user.id).maybeSingle();
-  if (error) { $("saveState").textContent = "클라우드에서 불러오지 못했습니다: " + error.message; return; }
-  const localHas = state.events.some((e) => !e.demo);
-  if (data && data.state && Array.isArray(data.state.events)) {
-    const cloudHas = data.state.events.length > 0;
-    if (!cloudHas && localHas && confirm("클라우드에는 일정이 없습니다. 이 PC에 있는 일정을 계정에 올릴까요?")) { /* 로컬 유지 후 업로드 */ }
-    else { state = Object.assign(freshState(), data.state); state.events = data.state.events.map((e) => newEvent(e)); state.notes = data.state.notes || {}; }
-  } else if (localHas && !confirm("계정에 처음 로그인했습니다. 이 PC에 있는 일정을 계정에 올릴까요?\n[취소]를 누르면 빈 문서로 시작합니다.")) {
-    state = freshState();
-  }
-  cloudReady = true;
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
-  renderAll(); cloudSave();
-}
-if (sb) {
-  sb.auth.onAuthStateChange((ev, session) => {
-    const next = session ? session.user : null;
-    const changed = (next && next.id) !== (user && user.id);
-    user = next; renderAuth();
-    if (changed && user) cloudLoad();
-    if (changed && !user) { cloudReady = false; $("saveState").textContent = "로그아웃했습니다. 지금부터는 이 PC에만 저장됩니다."; }
-  });
-}
-$("authClose").onclick = () => $("authDlg").close();
-function authInput() {
-  const email = $("authEmail").value.trim(), pw = $("authPw").value;
-  if (!/^\S+@\S+\.\S+$/.test(email)) { authMsg("이메일 주소를 확인하세요.", true); return null; }
-  if (pw.length < 6) { authMsg("비밀번호는 6자 이상이어야 합니다.", true); return null; }
-  return { email, password: pw };
-}
-function authMsg(t, err) { $("authMsg").textContent = t; $("authMsg").className = err ? "err" : ""; }
-$("authForm").addEventListener("submit", async (e) => {
-  e.preventDefault(); const c = authInput(); if (!c) return;
-  authMsg("로그인 중…");
-  const { error } = await sb.auth.signInWithPassword(c);
-  if (error) authMsg(/confirm/i.test(error.message) ? "이메일 인증이 아직 안 됐습니다. 메일함의 인증 링크를 먼저 누르세요." : "로그인 실패: 이메일이나 비밀번호를 확인하세요.", true);
-  else { $("authPw").value = ""; $("authDlg").close(); }
-});
-$("authSignup").onclick = async () => {
-  const c = authInput(); if (!c) return;
-  authMsg("가입 중…");
-  const { data, error } = await sb.auth.signUp(Object.assign(c, { options: { emailRedirectTo: location.origin + location.pathname } }));
-  if (error) authMsg("가입 실패: " + error.message, true);
-  else if (!data.session) authMsg("가입 확인 메일을 보냈습니다. 메일의 링크를 누른 뒤 로그인하세요.");
-  else { $("authPw").value = ""; $("authDlg").close(); }
-};
-
 /* 시작 */
-renderAuth();
 renderAll();
 if (!state.events.length) $("saveState").textContent = "처음 화면입니다. 왼쪽에 일정을 문장으로 입력하세요.";
 try { localStorage.setItem(KEY + "-test", "1"); localStorage.removeItem(KEY + "-test"); } catch (e) { $("saveState").textContent = "이 브라우저에서는 자동 저장이 되지 않습니다. 백업(JSON)을 이용하세요."; }
